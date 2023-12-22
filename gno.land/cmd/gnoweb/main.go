@@ -33,7 +33,7 @@ func main() {
 	var bindAddress string
 	fs.StringVar(&bindAddress, "bind", "127.0.0.1:8888", "server listening address")
 
-	cfg, err := parseConfigFlags(fs, os.Args)
+	cfg, err := parseConfigFlags(fs, os.Args[1:])
 	if err != nil {
 		panic("unable to parse flags: " + err.Error())
 	}
