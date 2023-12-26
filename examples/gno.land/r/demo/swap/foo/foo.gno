@@ -15,7 +15,7 @@ var (
 
 func init() {
 	foo = grc20.NewAdminToken("Foo", "FOO", 4)
-	foo.Mint(admin, 1000000*10000)                                    // @administrator (1M)
+	foo.Mint(admin, 1000000*10000) // @administrator (1M)
 }
 
 // method proxies as public functions.
@@ -67,6 +67,10 @@ func TransferFrom(from, to std.Address, amount uint64) {
 	if err != nil {
 		panic(err)
 	}
+}
+
+func PrevRealmAddr() std.Address {
+	return std.PrevRealm().Addr()
 }
 
 // faucet.

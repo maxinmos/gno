@@ -1,17 +1,10 @@
-package swap
+package pair
 
 import (
-	"math"
 	"std"
 
-	"gno.land/p/demo/grc/grc20"
-	"gno.land/p/demo/ufmt"
+	"gno.land/p/demo/swap"
 )
-
-type IGRC20 interface {
-	Transfer(to std.Address, amount uint64) error
-	BalanceOf(owner std.Address) (uint64, error)
-}
 
 type MintEvent struct {
 	Sender  std.Address
@@ -37,50 +30,52 @@ type Pair struct {
 	token1   IGRC20
 	reserve0 uint64
 	reserve1 uint64
-}
-
-func NewPair(name, symbol string, decimals uint, token0, token1 IGRC20) *Pair {
-	return &Pair{
-		AdminToken: grc20.NewAdminToken(name, symbol, decimals),
-		token0:     token0,
-		token1:     token1,
-	}
+	ammF     func(reserve0, reserve1, totalSupply uint64) IAMM
 }
 
 func (p *Pair) Mint(sender std.Address) error {
-	pair := std.CurrentRealm().Addr()
+	pair := std.PrevRealm().Addr()
 
-	balance0, balance1, err := p.balances(pair)
+	balance0, err := p.token0.BalanceOf(pair)
 	if err != nil {
 		return err
 	}
 
-	amm := NewAMM(p.reserve0, p.reserve1, p.TotalSupply())
+	balance1, err := p.token1.BalanceOf(pair)
+	if err != nil {
+		return err
+	}
 
 	amount0 := balance0 - p.reserve0
 	amount1 := balance1 - p.reserve1
 
+	amm := p.ammF(p.reserve0, p.reserve1, p.TotalSupply())
 	liquidity := amm.Mint(amount0, amount1)
 
 	if err := p.AdminToken.Mint(sender, liquidity); err != nil {
 		return err
 	}
 
-	p.update(balance0, balance1)
+	if err := p.update(balance0, balance1); err != nil {
+		return err
+	}
 
 	emit(&MintEvent{
 		Sender:  sender,
 		Amount0: amount0,
 		Amount1: amount1,
 	})
-
-	return nil
 }
 
 func (p *Pair) Burn(sender std.Address) error {
-	pair := std.CurrentRealm().Addr()
+	pair := std.PrevRealm().Addr()
 
-	balance0, balance1, err := p.balances(pair)
+	balance0, err := p.token0.BalanceOf(pair)
+	if err != nil {
+		return err
+	}
+
+	balance1, err := p.token1.BalanceOf(pair)
 	if err != nil {
 		return err
 	}
@@ -90,7 +85,7 @@ func (p *Pair) Burn(sender std.Address) error {
 		return err
 	}
 
-	amm := NewAMM(balance0, balance1, p.TotalSupply())
+	amm := p.ammF(balance0, balance1, p.TotalSupply())
 	amount0, amount1 := amm.Burn(liquidity)
 
 	if err := p.token0.Transfer(sender, amount0); err != nil {
@@ -101,7 +96,12 @@ func (p *Pair) Burn(sender std.Address) error {
 		return err
 	}
 
-	balance0, balance1, err = p.balances(pair)
+	balance0, err = p.token0.BalanceOf(p.pair)
+	if err != nil {
+		return err
+	}
+
+	balance1, err = p.token1.BalanceOf(p.pair)
 	if err != nil {
 		return err
 	}
@@ -113,33 +113,9 @@ func (p *Pair) Burn(sender std.Address) error {
 		Amount0: amount0,
 		Amount1: amount1,
 	})
-
-	return nil
 }
 
-func (p *Pair) Reserve0() uint64 {
-	return p.reserve0
-}
-
-func (p *Pair) Reserve1() uint64 {
-	return p.reserve1
-}
-
-func (p *Pair) balances(addr std.Address) (uint64, uint64, error) {
-	balance0, err := p.token0.BalanceOf(addr)
-	if err != nil {
-		return 0, 0, err
-	}
-
-	balance1, err := p.token1.BalanceOf(addr)
-	if err != nil {
-		return 0, 0, err
-	}
-
-	return balance0, balance1, nil
-}
-
-func (p *Pair) update(balance0, balance1 uint64) {
+func (p *Pair) update(balance0, balance1 uint64) error {
 	p.reserve0 = balance0
 	p.reserve1 = balance1
 
