@@ -13,6 +13,13 @@ type IGRC20 interface {
 	BalanceOf(owner std.Address) (uint64, error)
 }
 
+type IPair interface {
+	IGRC20
+	Mint(to std.Address, amount uint64) error
+	Burn(from std.Address, amount uint64) error
+	Balances() (balance0 uint64, balance1 uint64, _ error)
+}
+
 type MintEvent struct {
 	Sender  std.Address
 	Amount0 uint64
@@ -31,26 +38,23 @@ type SyncEvent struct {
 }
 
 type Pair struct {
-	*grc20.AdminToken
-
-	token0   IGRC20
-	token1   IGRC20
-	reserve0 uint64
-	reserve1 uint64
+	tokenPair IPair
+	token0    IGRC20
+	token1    IGRC20
+	reserve0  uint64
+	reserve1  uint64
 }
 
-func NewPair(name, symbol string, decimals uint, token0, token1 IGRC20) *Pair {
+func NewPair(tokenPair IPair, token0, token1 IGRC20) *Pair {
 	return &Pair{
-		AdminToken: grc20.NewAdminToken(name, symbol, decimals),
-		token0:     token0,
-		token1:     token1,
+		tokenPair: tokenPair,
+		token0:    token0,
+		token1:    token1,
 	}
 }
 
 func (p *Pair) Mint(sender std.Address) error {
-	pair := std.CurrentRealm().Addr()
-
-	balance0, balance1, err := p.balances(pair)
+	balance0, balance1, err := p.tokenPair.Balances()
 	if err != nil {
 		return err
 	}
@@ -62,7 +66,7 @@ func (p *Pair) Mint(sender std.Address) error {
 
 	liquidity := amm.Mint(amount0, amount1)
 
-	if err := p.AdminToken.Mint(sender, liquidity); err != nil {
+	if err := p.tokenPair.Mint(sender, liquidity); err != nil {
 		return err
 	}
 
@@ -78,9 +82,7 @@ func (p *Pair) Mint(sender std.Address) error {
 }
 
 func (p *Pair) Burn(sender std.Address) error {
-	pair := std.CurrentRealm().Addr()
-
-	balance0, balance1, err := p.balances(pair)
+	balance0, balance1, err := p.tokenPair.Balances()
 	if err != nil {
 		return err
 	}
@@ -93,6 +95,10 @@ func (p *Pair) Burn(sender std.Address) error {
 	amm := NewAMM(balance0, balance1, p.TotalSupply())
 	amount0, amount1 := amm.Burn(liquidity)
 
+	if err := p.tokenPair.Burn(sender, liquidity); err != nil {
+		return err
+	}
+
 	if err := p.token0.Transfer(sender, amount0); err != nil {
 		return err
 	}
@@ -101,7 +107,7 @@ func (p *Pair) Burn(sender std.Address) error {
 		return err
 	}
 
-	balance0, balance1, err = p.balances(pair)
+	balance0, balance1, err = p.tokenPair.Balances()
 	if err != nil {
 		return err
 	}
@@ -123,20 +129,6 @@ func (p *Pair) Reserve0() uint64 {
 
 func (p *Pair) Reserve1() uint64 {
 	return p.reserve1
-}
-
-func (p *Pair) balances(addr std.Address) (uint64, uint64, error) {
-	balance0, err := p.token0.BalanceOf(addr)
-	if err != nil {
-		return 0, 0, err
-	}
-
-	balance1, err := p.token1.BalanceOf(addr)
-	if err != nil {
-		return 0, 0, err
-	}
-
-	return balance0, balance1, nil
 }
 
 func (p *Pair) update(balance0, balance1 uint64) {

@@ -53,3 +53,7 @@ func (BarGRC20) BalanceOf(owner std.Address) (_ uint64, err error) {
 }
 
 var _ swap.IGRC20 = BarGRC20{}
+
+type FooBarPair struct{}
+
+var _ swap.IPair = FooBarPair{}
